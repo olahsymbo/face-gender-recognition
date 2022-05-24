@@ -19,6 +19,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator, array_to_im
 from sklearn import metrics
 
 from utils.preprocess import DataLoader
+from models.deep_network import DeepNetwork
 from utils.confusion_matrix import plot_confusion_matrix
 import config as cfg
 
@@ -90,28 +91,24 @@ datagen = ImageDataGenerator(rotation_range=40,
                              fill_mode='nearest',
                              rescale=1. / 255)
 
-train_dir = TRAINING_FOLDER
-validation_dir = VAL_FOLDER
-test_dir = TESTING_FOLDER
-
 # Flow training images in batches of 20 using train_datagen generator
 train_generator = datagen.flow_from_directory(
-    train_dir,  # This is the source directory for training images
-    target_size=(row, cox),  # All images will be resized to 150x150
+    cfg.TRAINING_FOLDER,  # This is the source directory for training images
+    target_size=(cfg.row, cfg.cox),  # All images will be resized to 150x150
     batch_size=60,
     # Since we use binary_crossentropy loss, we need binary labels
     class_mode='binary')
 
 # Flow validation images in batches of 20 using val_datagen generator
 validation_generator = datagen.flow_from_directory(
-    validation_dir,
-    target_size=(row, cox),
+    cfg.VAL_FOLDER,
+    target_size=(cfg.row, cfg.cox),
     batch_size=60,
     class_mode='binary')
 
 test_generator = datagen.flow_from_directory(
-    test_dir,
-    target_size=(row, cox),
+    cfg.TESTING_FOLDER,
+    target_size=(cfg.row, cfg.cox),
     batch_size=60,
     class_mode='binary')
 
@@ -129,48 +126,6 @@ for batch in datagen.flow(x, batch_size=1):
     if i > 20:
         break  # otherwise the generator would loop indefinitely
 
-
-# CNN model with 11 layers (5 conv, 2 maxpool, 1 dropout, 3 fully connected)
-# with data augmentation
-
-
-def larger_model():
-    # create model
-    model = Sequential()
-    model.add(Conv2D(20, (3, 3), input_shape=(row, cox, 3), activation='relu'))
-    model.add(MaxPooling2D())
-    model.add(Conv2D(32, (3, 3), activation='relu'))
-    model.add(MaxPooling2D())
-    model.add(Conv2D(64, (3, 3), activation='relu'))
-    model.add(Dropout(0.2))
-    model.add(Conv2D(128, (3, 3), activation='relu'))
-    model.add(Conv2D(256, (3, 3), activation='relu'))
-    model.add(Flatten())
-    model.add(Dense(512, activation='relu'))
-    model.add(Dense(1024, activation='sigmoid'))
-    model.add(Dense(n_classes, activation='sigmoid'))
-    # Compile model
-    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-    return model
-
-
-# build the model
-model = larger_model()
-es = EarlyStopping(monitor='val_loss', mode='min', verbose=1)
-
-history = model.fit(train_generator, epochs=30, validation_data=validation_generator,
-                    callbacks=[es])
-
-plt.plot(history.history['loss'], label='train')
-plt.plot(history.history['val_loss'], label='val')
-plt.legend()
-plt.show()
-
-test_generator.reset()
-scores = model.evaluate_generator(test_generator, batch_size=60)
-print("accuracy: {:.2f}%".format(scores[1] * 100))
-print("Loss: ", scores[0])
-
 # Using transfer learning with Inception V3 pretrained model
 
 y_train = pd.DataFrame(labels_train)
@@ -181,18 +136,9 @@ n_classes = y_train.shape[1]
 
 # define the inception model and added globalaveragepool, 2 fully connected layer.
 # the top layer is fixed not trainable to maintain the weights of inception net.
-
-base_model = InceptionV3(weights='imagenet', include_top=False)
-model = Sequential()
-model.add(base_model)
-model.add(GlobalAveragePooling2D())
-model.add(Dense(1024, activation='softmax'))
-model.add(Dense(n_classes, activation='sigmoid'))
-model.layers[0].trainable = False
-# Compile model
-es = EarlyStopping(monitor='val_loss', mode='min', verbose=1)
-model.fit(feature_train, y_train, validation_data=(feature_val, y_val),
-          epochs=100, batch_size=60, callbacks=[es])
+dpn = DeepNetwork(train_data=train_generator, val_data=validation_generator,
+                  n_classes=n_classes, model_type="inception")
+model, history = dpn.model
 
 plt.plot(history.history['loss'], label='train')
 plt.plot(history.history['val_loss'], label='val')
